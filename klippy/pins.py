@@ -37,6 +37,7 @@ MCU_PINS = {
     "atmega1280": port_pins(12), "atmega2560": port_pins(12),
     "sam3x8e": port_pins(4, 32),
     "stm32f103": port_pins(5, 16),
+    "stm32f446": port_pins(5, 16),
     "pru": beaglebone_pins(),
     "linux": {"analog%d" % i: i for i in range(8)}, # XXX
 }
