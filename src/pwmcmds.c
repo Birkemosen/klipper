@@ -3,6 +3,7 @@
 // Copyright (C) 2016  Kevin O'Connor <kevin@koconnor.net>
 //
 // This file may be distributed under the terms of the GNU GPLv3 license.
+#ifdef CONFIG_HAVE_GPIO_HARD_PWM
 
 #include "basecmd.h" // oid_alloc
 #include "board/gpio.h" // struct gpio_pwm
@@ -77,3 +78,4 @@ command_set_pwm_out(uint32_t *args)
     gpio_pwm_setup(args[0], args[1], args[2]);
 }
 DECL_COMMAND(command_set_pwm_out, "set_pwm_out pin=%u cycle_ticks=%u value=%hu");
+#endif

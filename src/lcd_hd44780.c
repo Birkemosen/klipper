@@ -3,7 +3,7 @@
 // Copyright (C) 2018  Kevin O'Connor <kevin@koconnor.net>
 //
 // This file may be distributed under the terms of the GNU GPLv3 license.
-
+#ifdef CONFIG_HAVE_USER_INTERFACE
 #include "basecmd.h" // oid_alloc
 #include "board/gpio.h" // gpio_out_write
 #include "board/irq.h" // irq_disable
@@ -130,3 +130,4 @@ hd44780_shutdown(void)
     }
 }
 DECL_SHUTDOWN(hd44780_shutdown);
+#endif

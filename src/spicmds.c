@@ -4,6 +4,8 @@
 //
 // This file may be distributed under the terms of the GNU GPLv3 license.
 
+#ifdef CONFIG_HAVE_GPIO_SPI
+
 #include "board/gpio.h" // gpio_out_write
 #include "command.h" // DECL_COMMAND
 
@@ -20,3 +22,4 @@ command_send_spi_message(uint32_t *args)
     sendf("spi_response response=%*s", len, msg);
 }
 DECL_COMMAND(command_send_spi_message, "send_spi_message pin=%u msg=%*s");
+#endif
