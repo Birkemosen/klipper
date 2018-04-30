@@ -44,7 +44,7 @@ serial_init(void)
 DECL_INIT(serial_init);
 
 void __visible
-USART1_IRQHandler(void)
+USART2_IRQHandler(void)
 {
     if (LL_USART_IsActiveFlag_RXNE(USART2) || LL_USART_IsActiveFlag_ORE(USART2))
         serial_rx_byte(LL_USART_ReceiveData8(USART2));
