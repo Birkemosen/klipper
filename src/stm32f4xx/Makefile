@@ -12,7 +12,7 @@ CFLAGS += -Ilib/cmsis-stm32f4xx/include -Ilib/cmsis-stm32f4xx/cmsis-include
 CFLAGS += -Ilib/hal-stm32f4xx/include
 CFLAGS += -DSTM32F446xx
 
-CFLAGS_klipper.elf += -Llib/cmsis-stm32f4xx/source/
+CFLAGS_klipper.elf += -Llib/cmsis-stm32f4xx/source
 CFLAGS_klipper.elf += -Tlib/cmsis-stm32f4xx/source/stm32f4.ld
 CFLAGS_klipper.elf += --specs=nano.specs --specs=nosys.specs
 
