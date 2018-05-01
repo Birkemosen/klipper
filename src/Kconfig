@@ -10,8 +10,8 @@ choice
         bool "SAM3x8e (Arduino Due)"
     config MACH_STM32F1
         bool "STMicroelectronics STM32F103"
-    config MACH_STM32F4xx
-        bool "STMicroelectronics STM32F4xx"
+    config MACH_STM32F4
+        bool "STMicroelectronics STM32F446"
     config MACH_PRU
         bool "Beaglebone PRU"
     config MACH_LINUX
@@ -23,7 +23,7 @@ endchoice
 source "src/avr/Kconfig"
 source "src/sam3x8e/Kconfig"
 source "src/stm32f1/Kconfig"
-source "src/stm32f4xx/Kconfig"
+source "src/stm32f4/Kconfig"
 source "src/pru/Kconfig"
 source "src/linux/Kconfig"
 source "src/simulator/Kconfig"
