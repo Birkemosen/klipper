@@ -14,7 +14,7 @@ config BOARD_DIRECTORY
 
 config CLOCK_FREQ
     int
-    default 18000000 # 32000000
+    default 180000000 # 32000000
 
 config SERIAL
     bool

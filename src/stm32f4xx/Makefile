@@ -10,7 +10,7 @@ dirs-y += lib/hal-stm32f4xx/source
 CFLAGS += -mthumb -mcpu=cortex-m4
 CFLAGS += -Ilib/cmsis-stm32f4xx/include -Ilib/cmsis-stm32f4xx/cmsis-include 
 CFLAGS += -Ilib/hal-stm32f4xx/include
-CFLAGS += -DSTM32F446xx
+CFLAGS += -Dstm32f446xx -DSTM32F4XX
 
 CFLAGS_klipper.elf += -Llib/cmsis-stm32f4xx/source
 CFLAGS_klipper.elf += -Tlib/cmsis-stm32f4xx/source/stm32f4.ld
@@ -22,10 +22,10 @@ $(OUT)%.o: %.s $(OUT)autoconf.h $(OUT)board-link
 	$(Q)$(AS) $< -o $@
 
 # Add source files
-src-y += stm32f4xx/main.c stm32f4xx/timer.c stm32f4xx/gpio.c
+src-y += stm32f4xx/main.c stm32f4xx/timer.c stm32f4xx/gpio.c stm32f4xx/watchdog.c
 src-y += $(addprefix ../, $(wildcard lib/hal-stm32f4xx/source/stm32f4xx_ll_*.c))
 src-y += generic/crc16_ccitt.c generic/armcm_irq.c generic/timer_irq.c
-src-y += ../lib/cmsis-stm32f4xx/source/system_stm32f4xx.c
+src-y += stm32f4xx/system_stm32f4xx.c
 src-ys = ../lib/cmsis-stm32f4xx/source/startup_stm32f446xx.s
 src-$(CONFIG_SERIAL) += stm32f4xx/serial.c generic/serial_irq.c
 

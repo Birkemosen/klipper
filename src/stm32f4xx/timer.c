@@ -9,7 +9,6 @@
 #include "autoconf.h"
 #include "board/misc.h" // timer_from_us
 #include "stm32f4xx.h"
-#include "stm32f4xx.h"
 #include "stm32f4xx_ll_bus.h"
 #include "stm32f4xx_ll_tim.h"
 #include "command.h" // shutdown
