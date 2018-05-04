@@ -25,8 +25,8 @@ $(OUT)%.o: %.s $(OUT)autoconf.h $(OUT)board-link
 src-y += stm32f4/main.c stm32f4/timer.c stm32f4/gpio.c stm32f4/watchdog.c
 src-y += $(addprefix ../, $(wildcard lib/hal-stm32f4/source/stm32f4xx_ll_*.c))
 src-y += generic/crc16_ccitt.c generic/armcm_irq.c generic/timer_irq.c
-src-y += stm32f4/system_stm32f4xx.c
-src-ys = stm32f4/startup_stm32f446xx.s
+src-y += src/../lib/cmsis-stm32f4/source/system_stm32f4xx.c
+src-ys = src/../lib/cmsis-stm32f4/source/startup_stm32f446xx.s
 src-$(CONFIG_SERIAL) += stm32f4/serial.c generic/serial_irq.c
 
 
