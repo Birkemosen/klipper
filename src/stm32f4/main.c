@@ -153,7 +153,7 @@ main(void)
     adc_config();
     io_config();
     
-    sendf("Initialization done, entering Schedule Main");
+    output("Initialization done, entering Schedule Main");
     sched_main();
     return 0;
 }
