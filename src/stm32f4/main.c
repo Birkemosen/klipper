@@ -152,6 +152,8 @@ main(void)
     systemclock_config();
     adc_config();
     io_config();
+    
+    sendf("Initialization done, entering Schedule Main");
     sched_main();
     return 0;
 }
