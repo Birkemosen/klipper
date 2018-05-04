@@ -42,4 +42,4 @@ $(OUT)klipper.bin: $(OUT)klipper.elf
 
 flash: $(OUT)klipper.bin
 	@echo "  Flashing via st-flash"
-	$(Q)st-flash -w $(OUT)klipper.bin 0x8000000
+	$(Q)st-flash write $(OUT)klipper.bin 0x8000000
