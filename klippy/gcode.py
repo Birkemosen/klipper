@@ -4,7 +4,7 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import os, re, logging, collections
-import homing, extruder
+import homing, kinematics.extruder
 
 class error(Exception):
     pass
@@ -31,6 +31,7 @@ class GCodeParser:
         self.is_printer_ready = False
         self.base_gcode_handlers = self.gcode_handlers = {}
         self.ready_gcode_handlers = {}
+        self.mux_commands = {}
         self.gcode_help = {}
         for cmd in self.all_handlers:
             func = getattr(self, 'cmd_' + cmd)
@@ -61,6 +62,8 @@ class GCodeParser:
             if cmd in self.base_gcode_handlers:
                 del self.base_gcode_handlers[cmd]
             return
+        if cmd in self.ready_gcode_handlers:
+            raise error("gcode command %s already registered" % (cmd,))
         if not (len(cmd) >= 2 and not cmd[0].isupper() and cmd[1].isdigit()):
             origfunc = func
             func = lambda params: origfunc(self.get_extended_params(params))
@@ -69,6 +72,19 @@ class GCodeParser:
             self.base_gcode_handlers[cmd] = func
         if desc is not None:
             self.gcode_help[cmd] = desc
+    def register_mux_command(self, cmd, key, value, func, desc=None):
+        prev = self.mux_commands.get(cmd)
+        if prev is None:
+            self.register_command(cmd, self.cmd_mux, desc=desc)
+            self.mux_commands[cmd] = prev = (key, {})
+        prev_key, prev_values = prev
+        if prev_key != key:
+            raise error("mux command %s %s %s may have only one key (%s)" % (
+                cmd, key, value, prev_key))
+        if value in prev_values:
+            raise error("mux command %s %s %s already registered (%s)" % (
+                cmd, key, value, prev_values))
+        prev_values[value] = func
     def set_move_transform(self, transform):
         if self.move_transform is not None:
             raise self.printer.config_error(
@@ -89,7 +105,7 @@ class GCodeParser:
             self.gcode_handlers = self.base_gcode_handlers
             self.dump_debug()
             if self.is_fileinput:
-                self.printer.request_exit()
+                self.printer.request_exit('error_exit')
             return
         if state != 'ready':
             return
@@ -100,7 +116,7 @@ class GCodeParser:
         if self.move_transform is None:
             self.move_with_transform = self.toolhead.move
             self.position_with_transform = self.toolhead.get_position
-        extruders = extruder.get_printer_extruders(self.printer)
+        extruders = kinematics.extruder.get_printer_extruders(self.printer)
         if extruders:
             self.extruder = extruders[0]
             self.toolhead.set_extruder(self.extruder)
@@ -219,12 +235,23 @@ class GCodeParser:
                 self.process_pending()
             self.is_processing_data = False
         return True
-    def run_script(self, script):
+    def run_script_from_command(self, script):
         prev_need_ack = self.need_ack
         try:
             self.process_commands(script.split('\n'), need_ack=False)
         finally:
             self.need_ack = prev_need_ack
+    def run_script(self, script):
+        curtime = self.reactor.monotonic()
+        for line in script.split('\n'):
+            while 1:
+                try:
+                    res = self.process_batch(line)
+                except:
+                    break
+                if res:
+                    break
+                curtime = self.reactor.pause(curtime + 0.100)
     # Response handling
     def ack(self, msg=None):
         if not self.need_ack or self.is_fileinput:
@@ -248,6 +275,8 @@ class GCodeParser:
         if len(lines) > 1:
             self.respond_info("\n".join(lines))
         self.respond('!! %s' % (lines[0].strip(),))
+        if self.is_fileinput:
+            self.printer.request_exit('error_exit')
     # Parameter parsing helpers
     class sentinel: pass
     def get_str(self, name, params, default=sentinel, parser=str,
@@ -367,25 +396,36 @@ class GCodeParser:
         self.respond_info('Unknown command:"%s"' % (cmd,))
     def cmd_Tn(self, params):
         # Select Tool
-        extruders = extruder.get_printer_extruders(self.printer)
+        extruders = kinematics.extruder.get_printer_extruders(self.printer)
         index = self.get_int('T', params, minval=0, maxval=len(extruders)-1)
         e = extruders[index]
         if self.extruder is e:
             return
-        self.run_script(self.extruder.get_activate_gcode(False))
+        self.run_script_from_command(self.extruder.get_activate_gcode(False))
         try:
             self.toolhead.set_extruder(e)
         except homing.EndstopError as e:
             raise error(str(e))
         self.extruder = e
         self.reset_last_position()
-        self.run_script(self.extruder.get_activate_gcode(True))
+        self.extrude_factor = 1.
+        self.base_position[3] = self.last_position[3]
+        self.run_script_from_command(self.extruder.get_activate_gcode(True))
+    def cmd_mux(self, params):
+        key, values = self.mux_commands[params['#command']]
+        if None in values:
+            key_param = self.get_str(key, params, None)
+        else:
+            key_param = self.get_str(key, params)
+        if key_param not in values:
+            raise error("The value '%s' is not valid for %s" % (key_param, key))
+        values[key_param](params)
     all_handlers = [
         'G1', 'G4', 'G28', 'M18', 'M400',
         'G20', 'M82', 'M83', 'G90', 'G91', 'G92', 'M114', 'M220', 'M221',
         'SET_GCODE_OFFSET', 'M206',
         'M105', 'M104', 'M109', 'M140', 'M190', 'M106', 'M107',
-        'M112', 'M115', 'IGNORE', 'QUERY_ENDSTOPS', 'GET_POSITION',
+        'M112', 'M115', 'IGNORE', 'GET_POSITION',
         'RESTART', 'FIRMWARE_RESTART', 'ECHO', 'STATUS', 'HELP']
     # G-Code movement commands
     cmd_G1_aliases = ['G0']
@@ -506,7 +546,9 @@ class GCodeParser:
                 offset += self.get_float(axis + '_ADJUST', params)
             else:
                 continue
-            self.base_position[pos] += offset - self.homing_position[pos]
+            delta = offset - self.homing_position[pos]
+            self.last_position[pos] += delta
+            self.base_position[pos] += delta
             self.homing_position[pos] = offset
     def cmd_M206(self, params):
         # Offset axes
@@ -554,13 +596,6 @@ class GCodeParser:
     def cmd_IGNORE(self, params):
         # Commands that are just silently accepted
         pass
-    cmd_QUERY_ENDSTOPS_help = "Report on the status of each endstop"
-    cmd_QUERY_ENDSTOPS_aliases = ["M119"]
-    def cmd_QUERY_ENDSTOPS(self, params):
-        # Get Endstop Status
-        res = homing.query_endstops(self.toolhead)
-        self.respond(" ".join(["%s:%s" % (name, ["open", "TRIGGERED"][not not t])
-                               for name, t in res]))
     cmd_GET_POSITION_when_not_ready = True
     def cmd_GET_POSITION(self, params):
         if self.toolhead is None:
@@ -568,13 +603,13 @@ class GCodeParser:
             return
         kin = self.toolhead.get_kinematics()
         steppers = kin.get_steppers()
-        mcu_pos = " ".join(["%s:%d" % (s.name, s.mcu_stepper.get_mcu_position())
+        mcu_pos = " ".join(["%s:%d" % (s.get_name(), s.get_mcu_position())
                             for s in steppers])
         stepper_pos = " ".join(
-            ["%s:%.6f" % (s.name, s.mcu_stepper.get_commanded_position())
+            ["%s:%.6f" % (s.get_name(), s.get_commanded_position())
              for s in steppers])
         kinematic_pos = " ".join(["%s:%.6f"  % (a, v)
-                                  for a, v in zip("XYZE", kin.get_position())])
+                                  for a, v in zip("XYZE", kin.calc_position())])
         toolhead_pos = " ".join(["%s:%.6f" % (a, v) for a, v in zip(
             "XYZE", self.toolhead.get_position())])
         gcode_pos = " ".join(["%s:%.6f"  % (a, v)

@@ -7,18 +7,17 @@ import logging
 import pins, mcu
 
 REPLICAPE_MAX_CURRENT = 3.84
-REPLICAPE_SHIFT_REGISTER_BUS = 1
-REPLICAPE_SHIFT_REGISTER_DEVICE = 1
+REPLICAPE_SHIFT_REGISTER_BUS = 0x0101
 REPLICAPE_PCA9685_BUS = 2
 REPLICAPE_PCA9685_ADDRESS = 0x70
 REPLICAPE_PCA9685_CYCLE_TIME = .001
 PIN_MIN_TIME = 0.100
 
 class pca9685_pwm:
-    def __init__(self, replicape, channel, pin_params):
+    def __init__(self, replicape, channel, pin_type, pin_params):
         self._replicape = replicape
         self._channel = channel
-        if pin_params['type'] not in ['digital_out', 'pwm']:
+        if pin_type not in ['digital_out', 'pwm']:
             raise pins.error("Pin type not supported on replicape")
         self._mcu = replicape.host_mcu
         self._mcu.add_config_object(self)
@@ -91,14 +90,14 @@ class pca9685_pwm:
             self.set_pwm(print_time, 0.)
 
 class ReplicapeDACEnable:
-    def __init__(self, replicape, channel, pin_params):
-        if pin_params['type'] != 'digital_out':
+    def __init__(self, replicape, channel, pin_type, pin_params):
+        if pin_type != 'digital_out':
             raise pins.error("Replicape virtual enable pin must be digital_out")
         if pin_params['invert']:
             raise pins.error("Replicape virtual enable pin can not be inverted")
         self.mcu = replicape.host_mcu
         self.value = replicape.stepper_dacs[channel]
-        self.pwm = pca9685_pwm(replicape, channel, pin_params)
+        self.pwm = pca9685_pwm(replicape, channel, pin_type, pin_params)
     def get_mcu(self):
         return self.mcu
     def setup_max_duration(self, max_duration):
@@ -137,7 +136,7 @@ class Replicape:
             "power_fan0": (pca9685_pwm, 7), "power_fan1": (pca9685_pwm, 8),
             "power_fan2": (pca9685_pwm, 9), "power_fan3": (pca9685_pwm, 10) }
         # Setup stepper config
-        self.send_spi_cmd = None
+        self.spi_send_cmd = None
         self.last_stepper_time = 0.
         self.stepper_dacs = {}
         shift_registers = [1, 0, 0, 1, 1]
@@ -177,13 +176,18 @@ class Replicape:
             shift_registers[4] &= ~1
         self.sr_enabled = tuple(reversed(shift_registers))
         self.host_mcu.add_config_object(self)
-        self.host_mcu.add_config_cmd("send_spi bus=%d dev=%d msg=%s" % (
-            REPLICAPE_SHIFT_REGISTER_BUS, REPLICAPE_SHIFT_REGISTER_DEVICE,
-            "".join(["%02x" % (x,) for x in self.sr_disabled])))
+        self.sr_oid = self.host_mcu.create_oid()
+        str_sr_disabled = "".join(["%02x" % (x,) for x in self.sr_disabled])
+        self.host_mcu.add_config_cmd(
+            "config_spi_without_cs oid=%d bus=%d mode=0 rate=50000000"
+            " shutdown_msg=%s" % (
+                self.sr_oid, REPLICAPE_SHIFT_REGISTER_BUS, str_sr_disabled))
+        self.host_mcu.add_config_cmd("spi_send oid=%d data=%s" % (
+            self.sr_oid, str_sr_disabled), is_init=True)
     def build_config(self):
         cmd_queue = self.host_mcu.alloc_command_queue()
-        self.send_spi_cmd = self.host_mcu.lookup_command(
-            "send_spi bus=%u dev=%u msg=%*s", cq=cmd_queue)
+        self.spi_send_cmd = self.host_mcu.lookup_command(
+            "spi_send oid=%c data=%*s", cq=cmd_queue)
     def note_pwm_start_value(self, channel, start_value, shutdown_value):
         self.mcu_pwm_start_value |= not not start_value
         self.mcu_pwm_shutdown_value |= not not shutdown_value
@@ -215,16 +219,14 @@ class Replicape:
             return
         print_time = max(print_time, self.last_stepper_time + PIN_MIN_TIME)
         clock = self.host_mcu.print_time_to_clock(print_time)
-        # XXX - the send_spi message should be scheduled
-        self.send_spi_cmd.send([REPLICAPE_SHIFT_REGISTER_BUS,
-                                REPLICAPE_SHIFT_REGISTER_DEVICE, sr],
-                               minclock=clock, reqclock=clock)
-    def setup_pin(self, pin_params):
+        # XXX - the spi_send message should be scheduled
+        self.spi_send_cmd.send([self.sr_oid, sr], minclock=clock, reqclock=clock)
+    def setup_pin(self, pin_type, pin_params):
         pin = pin_params['pin']
         if pin not in self.pins:
             raise pins.error("Unknown replicape pin %s" % (pin,))
         pclass, channel = self.pins[pin]
-        return pclass(self, channel, pin_params)
+        return pclass(self, channel, pin_type, pin_params)
 
 def load_config(config):
     return Replicape(config)

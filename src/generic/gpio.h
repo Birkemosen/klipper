@@ -7,6 +7,7 @@ struct gpio_out {
     uint8_t pin;
 };
 struct gpio_out gpio_out_setup(uint8_t pin, uint8_t val);
+void gpio_out_toggle_noirq(struct gpio_out g);
 void gpio_out_toggle(struct gpio_out g);
 void gpio_out_write(struct gpio_out g, uint8_t val);
 
@@ -30,7 +31,12 @@ uint32_t gpio_adc_sample(struct gpio_adc g);
 uint16_t gpio_adc_read(struct gpio_adc g);
 void gpio_adc_cancel_sample(struct gpio_adc g);
 
-void spi_config(void);
-void spi_transfer(char *data, uint8_t len);
+struct spi_config {
+    uint32_t cfg;
+};
+struct spi_config spi_setup(uint32_t bus, uint8_t mode, uint32_t rate);
+void spi_prepare(struct spi_config config);
+void spi_transfer(struct spi_config config, uint8_t receive_data
+                  , uint8_t len, uint8_t *data);
 
 #endif // gpio.h

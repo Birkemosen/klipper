@@ -9,6 +9,8 @@
 struct gpio_out gpio_out_setup(uint8_t pin, uint8_t val) {
     return (struct gpio_out){.pin=pin};
 }
+void gpio_out_toggle_noirq(struct gpio_out g) {
+}
 void gpio_out_toggle(struct gpio_out g) {
 }
 void gpio_out_write(struct gpio_out g, uint8_t val) {
@@ -36,7 +38,17 @@ uint16_t gpio_adc_read(struct gpio_adc g) {
 void gpio_adc_cancel_sample(struct gpio_adc g) {
 }
 
-void spi_config(void) {
+struct spi_config
+spi_setup(uint32_t bus, uint8_t mode, uint32_t rate)
+{
+    return (struct spi_config){ };
 }
-void spi_transfer(char *data, uint8_t len) {
+void
+spi_prepare(struct spi_config config)
+{
+}
+void
+spi_transfer(struct spi_config config, uint8_t receive_data
+             , uint8_t len, uint8_t *data)
+{
 }

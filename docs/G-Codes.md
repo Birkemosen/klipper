@@ -15,6 +15,7 @@ Klipper supports the following standard G-Code commands:
 - Set position: `G92 [X<pos>] [Y<pos>] [Z<pos>] [E<pos>]`
 - Set speed factor override percentage: `M220 S<percent>`
 - Set extrude factor override percentage: `M221 S<percent>`
+- Set acceleration: `M204 S<value>`
 - Get extruder temperature: `M105`
 - Set extruder temperature: `M104 [T<index>] [S<temperature>]`
 - Set extruder temperature and wait: `M109 [T<index>] S<temperature>`
@@ -46,6 +47,21 @@ Klipper also supports the following standard G-Code commands if the
 - Pause SD print: `M25`
 - Set SD position: `M26 S<offset>`
 - Report SD print status: `M27`
+
+## G-Code display commands
+
+The following standard G-Code commands are available if a "display"
+config section is enabled:
+- Display Message: `M117 <message>`
+- Set build percentage: `M73 P<percent>`
+
+## Other available G-Code commands
+
+The following standard G-Code commands are currently available, but
+using them is not recommended:
+- Offset axes: `M206 [X<offset>] [Y<offset>] [Z<offset>]` (Use
+  SET_GCODE_OFFSET instead.)
+- Get Endstop Status: `M119` (Use QUERY_ENDSTOPS instead.)
 
 # Extended G-Code Commands
 
@@ -81,12 +97,16 @@ The following standard commands are supported:
   /tmp/heattest.txt will be created with a log of all temperature
   samples taken during the test.
 - `SET_VELOCITY_LIMIT [VELOCITY=<value>] [ACCEL=<value>]
-  [ACCEL_TO_DECEL=<value>] [JUNCTION_DEVIATION=<value>]`: Modify the
-  printer's velocity limits. Note that one may only set values less
-  than or equal to the limits specified in the config file.
-- `SET_PRESSURE_ADVANCE [ADVANCE=<pressure_advance>]
+  [ACCEL_TO_DECEL=<value>] [SQUARE_CORNER_VELOCITY=<value>]`: Modify
+  the printer's velocity limits. Note that one may only set values
+  less than or equal to the limits specified in the config file.
+- `SET_PRESSURE_ADVANCE [EXTRUDER=<config_name>] [ADVANCE=<pressure_advance>]
   [ADVANCE_LOOKAHEAD_TIME=<pressure_advance_lookahead_time>]`:
-  Set pressure advance parameters.
+  Set pressure advance parameters. If EXTRUDER is not specified, it
+  defaults to the active extruder.
+- `STEPPER_BUZZ STEPPER=<config_name>`: Move the given stepper forward
+  one mm and then backward one mm, repeated 10 times. This is a
+  diagnostic tool to help verify stepper connectivity.
 - `RESTART`: This will cause the host software to reload its config
   and perform an internal reset. This command will not clear error
   state from the micro-controller (see FIRMWARE_RESTART) nor will it
@@ -138,6 +158,14 @@ section is enabled:
     command to move to the next probing point during a
     BED_TILT_CALIBRATE operation.
 
+## Z Tilt
+
+The following commands are available when the "z_tilt" config section
+is enabled:
+- `Z_TILT_ADJUST`: This command will probe the points specified in the
+  config and then make independent adjustments to each Z stepper to
+  compensate for tilt.
+
 ## Dual Carriages
 
 The following command is available when the "dual_carriage" config
@@ -145,3 +173,34 @@ section is enabled:
 - `SET_DUAL_CARRIAGE CARRIAGE=[0|1]`: This command will set the active
   carriage. It is typically invoked from the activate_gcode and
   deactivate_gcode fields in a multiple extruder configuration.
+
+## TMC2130
+
+The following command is available when the "tmc2130" config section
+is enabled:
+- `DUMP_TMC STEPPER=<name>`: This command will read the TMC2130 driver
+  registers and report their values.
+
+## Force movement
+
+The following commands are available when the "force_move" config
+section is enabled:
+- `FORCE_MOVE STEPPER=<config_name> DISTANCE=<value>
+  VELOCITY=<value>`: This command will forcibly move the given stepper
+  the given distance (in mm) at the given constant velocity (in
+  mm/s). No acceleration is performed; no boundary checks are
+  performed; no kinematic updates are made; other parallel steppers on
+  an axis will not be moved. Use caution as an incorrect command could
+  cause damage! Using this command will almost certainly place the
+  low-level kinematics in an incorrect state; issue a G28 afterwards
+  to reset the kinematics. This command is intended for low-level
+  diagnostics and debugging.
+- `SET_KINEMATIC_POSITION [X=<value>] [Y=<value>] [Z=<value>]`: Force
+  the low-level kinematic code to believe the toolhead is at the given
+  cartesian position. This is a diagnostic and debugging command; use
+  SET_GCODE_OFFSET and/or G92 for regular axis transformations. If an
+  axis is not specified then it will default to the position that the
+  head was last commanded to. Setting an incorrect or invalid position
+  may lead to internal software errors. This command may invalidate
+  future boundary checks; issue a G28 afterwards to reset the
+  kinematics.

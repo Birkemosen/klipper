@@ -1,13 +1,17 @@
-// Communicating with an SPI device via linux spidev
+// Very basic shift-register support via a Linux SPI device
 //
-// Copyright (C) 2017  Kevin O'Connor <kevin@koconnor.net>
+// Copyright (C) 2017-2018  Kevin O'Connor <kevin@koconnor.net>
 //
 // This file may be distributed under the terms of the GNU GPLv3 license.
 
 #include <fcntl.h> // open
+#include <linux/spi/spidev.h> // SPI_IOC_MESSAGE
 #include <stdio.h> // snprintf
+#include <string.h> // memset
+#include <sys/ioctl.h> // ioctl
 #include <unistd.h> // write
 #include "command.h" // DECL_COMMAND
+#include "gpio.h" // spi_setup
 #include "internal.h" // report_errno
 #include "sched.h" // shutdown
 
@@ -47,22 +51,62 @@ spi_open(uint32_t bus, uint32_t dev)
     return fd;
 }
 
-static void
-spi_write(int fd, char *data, int len)
+struct spi_config
+spi_setup(uint32_t bus, uint8_t mode, uint32_t rate)
 {
-    int ret = write(fd, data, len);
+    int bus_id = (bus >> 8) & 0xff, dev_id = bus & 0xff;
+    int fd = spi_open(bus_id, dev_id);
+    int ret = ioctl(fd, SPI_IOC_WR_MAX_SPEED_HZ, &rate);
     if (ret < 0) {
-        report_errno("write spi", ret);
-        shutdown("Unable to write to spi");
+        report_errno("ioctl set max spi speed", ret);
+        shutdown("Unable to set SPI speed");
     }
+    return (struct spi_config) { fd , rate};
 }
 
 void
-command_send_spi(uint32_t *args)
+spi_prepare(struct spi_config config)
 {
-    int fd = spi_open(args[0], args[1]);
-    uint8_t len = args[2];
-    char *msg = (void*)(size_t)args[3];
-    spi_write(fd, msg, len);
 }
-DECL_COMMAND(command_send_spi, "send_spi bus=%u dev=%u msg=%*s");
+
+void
+spi_transfer(struct spi_config config, uint8_t receive_data
+             , uint8_t len, uint8_t *data)
+{
+    if (!len)
+        return;
+
+    if (receive_data) {
+        struct spi_ioc_transfer transfer;
+        memset(&transfer, 0, sizeof(transfer));
+        transfer.tx_buf = (uintptr_t)data;
+        transfer.rx_buf = (uintptr_t)data;
+        transfer.len = len;
+        transfer.speed_hz = config.rate;
+        transfer.bits_per_word = 8;
+        transfer.cs_change = 0;
+        int ret = ioctl(config.fd, SPI_IOC_MESSAGE(1), &transfer);
+        if (ret < 0) {
+            report_errno("spi ioctl", ret);
+            shutdown("Unable to issue spi ioctl");
+        }
+    } else {
+        int ret = write(config.fd, data, len);
+        if (ret < 0) {
+            report_errno("write spi", ret);
+            shutdown("Unable to write to spi");
+        }
+    }
+}
+
+// Dummy versions of gpio_out functions
+struct gpio_out
+gpio_out_setup(uint8_t pin, uint8_t val)
+{
+    shutdown("gpio_out_setup not supported");
+}
+
+void
+gpio_out_write(struct gpio_out g, uint8_t val)
+{
+}

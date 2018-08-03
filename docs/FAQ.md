@@ -11,9 +11,10 @@ Frequently asked questions
 8. [Why can't I move the stepper before homing the printer?](#why-cant-i-move-the-stepper-before-homing-the-printer)
 9. [Why is the Z position_endstop set to 0.5 in the default configs?](#why-is-the-z-position_endstop-set-to-05-in-the-default-configs)
 10. [I converted my config from Marlin and the X/Y axes work fine, but I just get a screeching noise when homing the Z axis](#i-converted-my-config-from-marlin-and-the-xy-axes-work-fine-but-i-just-get-a-screeching-noise-when-homing-the-z-axis)
-11. [When I set "restart_method=command" my AVR device just hangs on a restart](#when-i-set-restart_methodcommand-my-avr-device-just-hangs-on-a-restart)
-12. [Will the heaters be left on if the Raspberry Pi crashes?](#will-the-heaters-be-left-on-if-the-raspberry-pi-crashes)
-13. [How do I upgrade to the latest software?](#how-do-i-upgrade-to-the-latest-software)
+11. [My TMC motor driver turns off in the middle of a print](#my-tmc-motor-driver-turns-off-in-the-middle-of-a-print)
+12. [When I set "restart_method=command" my AVR device just hangs on a restart](#when-i-set-restart_methodcommand-my-avr-device-just-hangs-on-a-restart)
+13. [Will the heaters be left on if the Raspberry Pi crashes?](#will-the-heaters-be-left-on-if-the-raspberry-pi-crashes)
+14. [How do I upgrade to the latest software?](#how-do-i-upgrade-to-the-latest-software)
 
 ### How can I donate to the project?
 
@@ -37,7 +38,7 @@ The general way to find a USB serial port is to run `ls -l
 /dev/serial/by-id/` from an ssh terminal on the host machine. It will
 likely produce output similar to the following:
 ```
-lrwxrwxrwx 1 root root 13 Jan 3 22:15 usb-UltiMachine__ultimachine.com__RAMBo_12345678912345678912-if00 -> ../../ttyACM0
+lrwxrwxrwx 1 root root 13 Jun  1 21:12 usb-1a86_USB2.0-Serial-if00-port0 -> ../../ttyUSB0
 ```
 
 The name found in the above command is stable and it is possible to
@@ -45,17 +46,21 @@ use it in the config file and while flashing the micro-controller
 code. For example, a flash command might look similar to:
 ```
 sudo service klipper stop
-make flash FLASH_DEVICE=/dev/serial/by-id/usb-UltiMachine__ultimachine.com__RAMBo_12345678912345678912-if00
+make flash FLASH_DEVICE=/dev/serial/by-id/usb-1a86_USB2.0-Serial-if00-port0
 sudo service klipper start
 ```
 and the updated config might look like:
 ```
 [mcu]
-serial: /dev/serial/by-id/usb-UltiMachine__ultimachine.com__RAMBo_12345678912345678912-if00
+serial: /dev/serial/by-id/usb-1a86_USB2.0-Serial-if00-port0
 ```
 
 Be sure to copy-and-paste the name from the "ls" command that you ran
 above as the name will be different for each printer.
+
+If you are using multiple micro-controllers and they do not have
+unique ids (common on boards with a CH340 USB chip) then follow the
+directions above using the directory `/dev/serial/by-path/` instead.
 
 ### When the micro-controller restarts the device changes to /dev/ttyUSB1
 
@@ -150,6 +155,14 @@ Settings->GCODE Scripts
 If you want to move the head after a print finishes, consider adding
 the desired movement to the "custom g-code" section of your slicer.
 
+If the printer requires some additional movement as part of the homing
+process itself (or fundamentally does not have a homing process) then
+consider using a homing_override section in the config file. If you
+need to move a stepper for diagnostic or debugging purposes then
+consider adding a force_move section to the config file. See
+[example-extras.cfg](../config/example-extras.cfg) for further details
+on these options.
+
 ### Why is the Z position_endstop set to 0.5 in the default configs?
 
 For cartesian style printers the Z position_endstop specifies how far
@@ -196,6 +209,20 @@ rates, but the stepper motor may not have sufficient torque to move at
 a higher speed. So, for a Z axis with a very precise step_distance the
 actual obtainable max_z_velocity may be smaller than what is
 configured in Marlin.
+
+### My TMC motor driver turns off in the middle of a print
+
+There have been reports of some TMC drivers being disabled in the
+middle of a print. (In particular, with the TMC2208 driver.) When this
+issue occurs, the stepper associated with the driver moves freely,
+while the print continues.
+
+It is believed this may be due to "over current" detection within the
+TMC driver. Trinamic has indicated that this could occur if the driver
+is in "stealthChop mode" and an abrupt velocity change occurs. If you
+experience this problem during homing, consider using a slower homing
+speed. If you experience this problem in the middle of a print,
+consider using a lower square_corner_velocity setting.
 
 ### When I set "restart_method=command" my AVR device just hangs on a restart
 

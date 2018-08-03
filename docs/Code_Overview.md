@@ -17,8 +17,10 @@ arranges for includes of "board/somefile.h" to first look in the
 current architecture directory (eg, src/avr/somefile.h) and then in
 the generic directory (eg, src/generic/somefile.h).
 
-The **klippy/** directory contains the C and Python source for the
-host part of the software.
+The **klippy/** directory contains the host software. Most of the host
+software is written in Python, however the **klippy/chelper/**
+directory contains some C code helpers. The **klippy/extras/**
+directory contains the host code extensible "modules".
 
 The **lib/** directory contains external 3rd-party library code that
 is necessary to build some targets.
@@ -105,9 +107,9 @@ DECL_COMMAND macro in the micro-controller code).
 
 There are four threads in the Klippy host code. The main thread
 handles incoming gcode commands. A second thread (which resides
-entirely in the **klippy/serialqueue.c** C code) handles low-level IO
-with the serial port. The third thread is used to process response
-messages from the micro-controller in the Python code (see
+entirely in the **klippy/chelper/serialqueue.c** C code) handles
+low-level IO with the serial port. The third thread is used to process
+response messages from the micro-controller in the Python code (see
 **klippy/serialhdl.py**). The fourth thread writes debug messages to
 the log (see **klippy/queuelogger.py**) so that the other threads
 never block on log writes.
@@ -147,7 +149,7 @@ provides further information on the mechanics of moves.
   zero duration.
   * When Move.move() is called, everything about the move is known -
   its start location, its end location, its acceleration, its
-  start/crusing/end velocity, and distance traveled during
+  start/cruising/end velocity, and distance traveled during
   acceleration/cruising/deceleration. All the information is stored in
   the Move() class and is in cartesian space in units of millimeters
   and seconds.
@@ -161,52 +163,61 @@ provides further information on the mechanics of moves.
   kinematic class is given a chance to audit the move
   (`ToolHead.move() -> kin.check_move()`) before it goes on the
   look-ahead queue, but once the move arrives in *kin*.move() the
-  kinematic class is required to handle the move as specified. The
-  kinematic classes translate the three parts of each move
-  (acceleration, constant "cruising" velocity, and deceleration) to
-  the associated movement on each stepper. Note that the extruder is
-  handled in its own kinematic class. Since the Move() class specifies
-  the exact movement time and since step pulses are sent to the
-  micro-controller with specific timing, stepper movements produced by
-  the extruder class will be in sync with head movement even though
-  the code is kept separate.
+  kinematic class is required to handle the move as specified. Note
+  that the extruder is handled in its own kinematic class. Since the
+  Move() class specifies the exact movement time and since step pulses
+  are sent to the micro-controller with specific timing, stepper
+  movements produced by the extruder class will be in sync with head
+  movement even though the code is kept separate.
 
-* For efficiency reasons, the stepper pulse times are generated in C
-  code. The code flow is: `kin.move() -> MCU_Stepper.step_const() ->
-  stepcompress_push_const()`, or for delta kinematics:
-  `DeltaKinematics.move() -> MCU_Stepper.step_delta() ->
-  stepcompress_push_delta()`. The MCU_Stepper code just performs unit
-  and axis transformation (millimeters to step distances), and calls
-  the C code. The C code calculates the stepper step times for each
-  movement and fills an array (struct stepcompress.queue) with the
-  corresponding micro-controller clock counter times for every
-  step. Here the "micro-controller clock counter" value directly
-  corresponds to the micro-controller's hardware counter - it is
-  relative to when the micro-controller was last powered up.
+* Klipper uses an
+  [iterative solver](https://en.wikipedia.org/wiki/Root-finding_algorithm)
+  to generate the step times for each stepper. For efficiency reasons,
+  the stepper pulse times are generated in C code. The code flow is:
+  `kin.move() -> MCU_Stepper.step_itersolve() ->
+  itersolve_gen_steps()` (in klippy/chelper/itersolve.c). The goal of
+  the iterative solver is to find step times given a function that
+  calculates a stepper position from a time. This is done by
+  repeatedly "guessing" various times until the stepper position
+  formula returns the desired position of the next step on the
+  stepper. The feedback produced from each guess is used to improve
+  future guesses so that the process rapidly converges to the desired
+  time. The kinematic stepper position formulas are located in the
+  klippy/chelper/ directory (eg, kin_cart.c, kin_corexy.c,
+  kin_delta.c, kin_extruder.c).
+
+* After the iterative solver calculates the step times they are added
+  to an array: `itersolve_gen_steps() -> queue_append()` (in
+  klippy/chelper/stepcompress.c). The array (struct
+  stepcompress.queue) stores the corresponding micro-controller clock
+  counter times for every step. Here the "micro-controller clock
+  counter" value directly corresponds to the micro-controller's
+  hardware counter - it is relative to when the micro-controller was
+  last powered up.
 
 * The next major step is to compress the steps: `stepcompress_flush()
-  -> compress_bisect_add()` (in stepcompress.c). This code generates
-  and encodes a series of micro-controller "queue_step" commands that
-  correspond to the list of stepper step times built in the previous
-  stage. These "queue_step" commands are then queued, prioritized, and
-  sent to the micro-controller (via stepcompress.c:steppersync and
-  serialqueue.c:serialqueue).
+  -> compress_bisect_add()` (in klippy/chelper/stepcompress.c). This
+  code generates and encodes a series of micro-controller "queue_step"
+  commands that correspond to the list of stepper step times built in
+  the previous stage. These "queue_step" commands are then queued,
+  prioritized, and sent to the micro-controller (via
+  stepcompress.c:steppersync and serialqueue.c:serialqueue).
 
 * Processing of the queue_step commands on the micro-controller starts
-  in command.c which parses the command and calls
-  `command_queue_step()`. The command_queue_step() code (in stepper.c)
-  just appends the parameters of each queue_step command to a per
-  stepper queue. Under normal operation the queue_step command is
-  parsed and queued at least 100ms before the time of its first
-  step. Finally, the generation of stepper events is done in
-  `stepper_event()`. It's called from the hardware timer interrupt at
-  the scheduled time of the first step. The stepper_event() code
-  generates a step pulse and then reschedules itself to run at the
-  time of the next step pulse for the given queue_step parameters. The
-  parameters for each queue_step command are "interval", "count", and
-  "add". At a high-level, stepper_event() runs the following, 'count'
-  times: `do_step(); next_wake_time = last_wake_time + interval;
-  interval += add;`
+  in src/command.c which parses the command and calls
+  `command_queue_step()`. The command_queue_step() code (in
+  src/stepper.c) just appends the parameters of each queue_step
+  command to a per stepper queue. Under normal operation the
+  queue_step command is parsed and queued at least 100ms before the
+  time of its first step. Finally, the generation of stepper events is
+  done in `stepper_event()`. It's called from the hardware timer
+  interrupt at the scheduled time of the first step. The
+  stepper_event() code generates a step pulse and then reschedules
+  itself to run at the time of the next step pulse for the given
+  queue_step parameters. The parameters for each queue_step command
+  are "interval", "count", and "add". At a high-level, stepper_event()
+  runs the following, 'count' times: `do_step(); next_wake_time =
+  last_wake_time + interval; interval += add;`
 
 The above may seem like a lot of complexity to execute a
 movement. However, the only really interesting parts are in the
@@ -291,8 +302,7 @@ This section provides some tips on adding support to Klipper for
 additional types of printer kinematics. This type of activity requires
 excellent understanding of the math formulas for the target
 kinematics. It also requires software development skills - though one
-should only need to update the host software (which is written in
-Python).
+should only need to update the host software.
 
 Useful steps:
 1. Start by studying the
@@ -302,74 +312,80 @@ Useful steps:
    and delta.py. The kinematic classes are tasked with converting a
    move in cartesian coordinates to the movement on each stepper. One
    should be able to copy one of these files as a starting point.
-3. Implement the `get_postion()` method in the new kinematics
-   class. This method converts the current stepper position of each
-   stepper axis (stored in millimeters) to a position in cartesian
-   space (also in millimeters).
-4. Implement the `set_postion()` method. This is the inverse of
-   get_position() - it sets each axis position (in millimeters) given
-   a position in cartesian coordinates.
-5. Implement the `move()` method. The goal of the move() method is to
-   convert a move defined in cartesian space to a series of stepper
-   step times that implement the requested movement.
-   * The `move()` method is passed a "print_time" parameter (which
-     stores a time in seconds) and a "move" class instance that fully
-     defines the movement. The goal is to repeatedly invoke the
-     `stepper.step()` method with the time (relative to print_time)
-     that each stepper should step at to obtain the desired motion.
-   * One "trick" to help with the movement calculations is to imagine
-     there is a physical rail between `move.start_pos` and
-     `move.end_pos` that confines the print head so that it can only
-     move along this straight line of motion. Then, if the head is
-     confined to that imaginary rail, the head is at `move.start_pos`,
-     only one stepper is enabled (all other steppers can move freely),
-     and the given stepper is stepped a single step, then one can
-     imagine that the head will move along the line of movement some
-     distance. Determine the formula converting this step distance to
-     distance along the line of movement. Once one has the distance
-     along the line of movement, one can figure out the time that the
-     head should be at that position (using the standard formulas for
-     velocity and acceleration). This time is the ideal step time for
-     the given stepper and it can be passed to the `stepper.step()`
-     method.
-   * The `stepper.step()` method must always be called with an
-     increasing time for a given stepper (steps must be scheduled in
-     the order they are to be executed). A common error during
-     kinematic development is to receive an "Internal error in
-     stepcompress" failure - this is generally due to the step()
-     method being invoked with a time earlier than the last scheduled
-     step. For example, if the last step in move1 is scheduled at a
-     time greater than the first step in move2 it will generally
-     result in the above error.
-   * Fractional steps. Be aware that a move request is given in
-     cartesian space and it is not confined to discreet
-     locations. Thus a move's start and end locations may translate to
-     a location on a stepper axis that is between two steps (a
-     fractional step). The code must handle this. The preferred
-     approach is to schedule the next step at the time a move would
-     position the stepper axis at least half way towards the next
-     possible step location. Incorrect handling of fractional steps is
-     a common cause of "Internal error in stepcompress" failures.
-6. Other methods. The `home()`, `check_move()`, and other methods
-   should also be implemented. However, at the start of development
-   one can use empty code here.
-7. Implement test cases. Create a g-code file with a series of moves
+3. Implement the C stepper kinematic position functions for each
+   stepper if they are not already available (see kin_cart.c,
+   kin_corexy.c, and kin_delta.c in klippy/chelper/). The function
+   should call `move_get_coord()` to convert a given move time (in
+   seconds) to a cartesian coordinate (in millimeters), and then
+   calculate the desired stepper position (in millimeters) from that
+   cartesian coordinate.
+4. Implement the `calc_position()` method in the new kinematics class.
+   This method calculates the position of the toolhead in cartesian
+   coordinates from the current position of each stepper. It does not
+   need to be efficient as it is typically only called during homing
+   and probing operations.
+5. Other methods. The `move()`, `home()`, `check_move()`, and other
+   methods should also be implemented. These functions are typically
+   used to provide kinematic specific checks. However, at the start of
+   development one can use boiler-plate code here.
+6. Implement test cases. Create a g-code file with a series of moves
    that can test important cases for the given kinematics. Follow the
    [debugging documentation](Debugging.md) to convert this g-code file
    to micro-controller commands. This is useful to exercise corner
    cases and to check for regressions.
-8. Optimize if needed. One may notice that the existing kinematic
-   classes do not call `stepper.step()`. This is purely an
-   optimization - the inner loop of the kinematic calculations were
-   moved to C to reduce load on the host cpu. All of the existing
-   kinematic classes started development using `stepper.step()` and
-   then were later optimized. The g-code to mcu command translation
-   (described in the previous step) is a useful tool during
-   optimization - if a code change is purely an optimization then it
-   should not impact the resulting text representation of the mcu
-   commands (though minor changes in output due to floating point
-   rounding are possible). So, one can use this system to detect
-   regressions.
+
+Porting to a new micro-controller
+=================================
+
+This section provides some tips on porting Klipper's micro-controller
+code to a new architecture. This type of activity requires good
+knowledge of embedded development and hands-on access to the target
+micro-controller.
+
+Useful steps:
+1. Start by identifying any 3rd party libraries that will be used
+   during the port. Common examples include "CMSIS" wrappers and
+   manufacturer "HAL" libraries. All 3rd party code needs to be GNU
+   GPLv3 compatible. The 3rd party code should be committed to the
+   Klipper lib/ directory. Update the lib/README file with information
+   on where and when the library was obtained. It is preferable to
+   copy the code into the Klipper repository unchanged, but if any
+   changes are required then those changes should be listed explicitly
+   in the lib/README file.
+2. Create a new architecture sub-directory in the src/ directory and
+   add initial Kconfig and Makefile support. Use the existing
+   architectures as a guide. The src/simulator provides a basic
+   example of a minimum starting point.
+3. The first main coding task is to bring up communication support to
+   the target board. This is the most difficult step in a new port.
+   Once basic communication is working, the remaining steps tend to be
+   much easier. It is typical to use an RS-232 style serial port
+   during initial development as these types of hardware devices are
+   generally easier to enable and control. During this phase, make
+   liberal use of helper code from the src/generic/ directory (check
+   how src/simulator/Makefile includes the generic C code into the
+   build). It is also necessary to define timer_read_time() (which
+   returns the current system clock) in this phase, but it is not
+   necessary to fully support timer irq handling.
+4. Get familiar with the the console.py tool (as described in the
+   [debugging document](Debugging.md)) and verify connectivity to the
+   micro-controller with it. This tool translates the low-level
+   micro-controller communication protocol to a human readable form.
+5. Add support for timer dispatch from hardware interrupts. See
+   Klipper
+   [commit 970831ee](https://github.com/KevinOConnor/klipper/commit/970831ee0d3b91897196e92270d98b2a3067427f)
+   as an example of steps 1-5 done for the LPC176x architecture.
+6. Bring up basic GPIO input and output support. See Klipper
+   [commit c78b9076](https://github.com/KevinOConnor/klipper/commit/c78b90767f19c9e8510c3155b89fb7ad64ca3c54)
+   as an example of this.
+7. Bring up additional peripherals - for example see Klipper commit
+   [65613aed](https://github.com/KevinOConnor/klipper/commit/65613aeddfb9ef86905cb1dade9e773a02ef3c27),
+   [c812a40a](https://github.com/KevinOConnor/klipper/commit/c812a40a3782415e454b04bf7bd2158a6f0ec8b5),
+   and
+   [c381d03a](https://github.com/KevinOConnor/klipper/commit/c381d03aad5c3ee761169b7c7bced519cc14da29).
+8. Create a sample Klipper config file in the config/ directory. Test
+   the micro-controller with the main klippy.py program.
+9. Consider adding build test cases in the test/ directory.
 
 Time
 ====
@@ -425,8 +441,8 @@ Some things to be aware of when reviewing the code:
   conversion is never ambiguous. The host converts from 64bit clocks
   to 32bit clocks by simply truncating the high-order bits. To ensure
   there is no ambiguity in this conversion, the
-  **klippy/serialqueue.c** code will buffer messages until they are
-  within 2^31 clock ticks of their target time.
+  **klippy/chelper/serialqueue.c** code will buffer messages until
+  they are within 2^31 clock ticks of their target time.
 * Multiple micro-controllers: The host software supports using
   multiple micro-controllers on a single printer. In this case, the
   "MCU clock" of each micro-controller is tracked separately. The

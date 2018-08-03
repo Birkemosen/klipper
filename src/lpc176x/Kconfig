@@ -1,0 +1,51 @@
+# Kconfig settings for LPC176x processors
+
+if MACH_LPC176X
+
+config LPC_SELECT
+    bool
+    default y
+    select HAVE_GPIO
+    select HAVE_GPIO_ADC
+    select HAVE_GPIO_SPI
+    select HAVE_USER_INTERFACE
+
+config BOARD_DIRECTORY
+    string
+    default "lpc176x"
+
+choice
+    prompt "Processor model"
+    config MACH_LPC1768
+        bool "lpc1768 (100 Mhz)"
+    config MACH_LPC1769
+        bool "lpc1769 (120 Mhz)"
+endchoice
+
+config CLOCK_FREQ
+    int
+    default 25000000 if MACH_LPC1768 # 100000000 / 4
+    default 30000000 if MACH_LPC1769 # 120000000 / 4
+
+config SMOOTHIEWARE_BOOTLOADER
+    bool "Target board uses Smoothieware bootloader"
+    default y
+
+config FLASH_START
+    hex
+    default 0x4000 if SMOOTHIEWARE_BOOTLOADER
+    default 0x0000
+
+config USBSERIAL
+    bool "Use USB for communication (instead of serial)"
+    default y
+config SERIAL
+    depends on !USBSERIAL
+    bool
+    default y
+config SERIAL_BAUD
+    depends on SERIAL
+    int "Baud rate for serial port"
+    default 250000
+
+endif
