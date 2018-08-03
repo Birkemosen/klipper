@@ -149,10 +149,11 @@ main(void)
 {
     SystemInit();
     LL_Init1msTick(SystemCoreClock);
+
     systemclock_config();
     adc_config();
     io_config();
-    
+
     output("Initialization done, entering Schedule Main");
     sched_main();
     return 0;

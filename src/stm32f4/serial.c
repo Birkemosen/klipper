@@ -18,37 +18,54 @@
 void
 serial_init(void)
 {
-    const uint32_t pclk = __LL_RCC_CALC_PCLK2_FREQ(SystemCoreClock, LL_RCC_GetAPB1Prescaler());
 
-    LL_APB1_GRP1_ForceReset(LL_APB1_GRP1_PERIPH_USART2);
-    LL_APB1_GRP1_ReleaseReset(LL_APB1_GRP1_PERIPH_USART2);
-    LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_USART2);
-    LL_USART_SetBaudRate(USART2, pclk, LL_USART_OVERSAMPLING_8, CONFIG_SERIAL_BAUD);
-    LL_USART_SetDataWidth(USART2, LL_USART_DATAWIDTH_8B);
-    LL_USART_SetParity(USART2, LL_USART_PARITY_NONE);
-    LL_USART_SetStopBitsLength(USART2, LL_USART_STOPBITS_1);
-    LL_USART_SetHWFlowCtrl(USART2, LL_USART_HWCONTROL_NONE);
-    LL_USART_SetTransferDirection(USART2, LL_USART_DIRECTION_TX_RX);
-    LL_USART_EnableIT_RXNE(USART2);
-    NVIC_EnableIRQ(USART2_IRQn);
-    NVIC_SetPriority(USART2_IRQn, 1);
-    LL_USART_Enable(USART2);
-
+    // 1. Enable GPIO clock and configure USART pins
     LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_GPIOA);
-    //LL_GPIO_AF_DisableRemap_USART2();
-    LL_GPIO_SetPinPull(GPIOA, LL_GPIO_PIN_2, LL_GPIO_PULL_UP);
+
+    // Configure Tx Pin
     LL_GPIO_SetPinMode(GPIOA, LL_GPIO_PIN_2, LL_GPIO_MODE_ALTERNATE);
+    LL_GPIO_SetAFPin_0_7(GPIOA, LL_GPIO_PIN_2, LL_GPIO_AF_7);
+    LL_GPIO_SetPinSpeed(GPIOA, LL_GPIO_PIN_2, LL_GPIO_SPEED_FREQ_HIGH);
+    LL_GPIO_SetPinOutputType(GPIOA, LL_GPIO_PIN_2, LL_GPIO_OUTPUT_PUSHPULL);
+    LL_GPIO_SetPinPull(GPIOA, LL_GPIO_PIN_2, LL_GPIO_PULL_UP);
+
+    // Configure Rx Pin
+    LL_GPIO_SetPinMode(GPIOA, LL_GPIO_PIN_3, LL_GPIO_MODE_ALTERNATE);
+    LL_GPIO_SetAFPin_0_7(GPIOA, LL_GPIO_PIN_3, LL_GPIO_AF_7);
+    LL_GPIO_SetPinSpeed(GPIOA, LL_GPIO_PIN_3, LL_GPIO_SPEED_FREQ_HIGH);
+    LL_GPIO_SetPinOutputType(GPIOA, LL_GPIO_PIN_3, LL_GPIO_OUTPUT_PUSHPULL);
     LL_GPIO_SetPinPull(GPIOA, LL_GPIO_PIN_3, LL_GPIO_PULL_UP);
-    LL_GPIO_SetPinMode(GPIOA, LL_GPIO_PIN_3, LL_GPIO_MODE_INPUT);
+
+    // 2. NVIC configuration for USART Interrupts
+    NVIC_SetPriority(USART2_IRQn, 1);
+    NVIC_EnableIRQ(USART2_IRQn);
+
+    // 3. Enable USART peripheral clock and clock source
+    LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_USART2);
+
+    // 4. Configure USART functional parameters
+    LL_USART_SetTransferDirection(USART2, LL_USART_DIRECTION_TX_RX);
+    LL_USART_ConfigCharacter(USART2, LL_USART_DATAWIDTH_8B, LL_USART_PARITY_NONE, LL_USART_STOPBITS_1);
+    LL_USART_SetHWFlowCtrl(USART2, LL_USART_HWCONTROL_NONE);
+    LL_USART_SetOverSampling(USART2, LL_USART_OVERSAMPLING_8);
+
+    const uint32_t pclk = __LL_RCC_CALC_PCLK2_FREQ(SystemCoreClock, LL_RCC_GetAPB1Prescaler());
+    LL_USART_SetBaudRate(USART2, pclk, LL_USART_OVERSAMPLING_8, CONFIG_SERIAL_BAUD);
+    
+    // 5. Enable USART
+    LL_USART_Enable(USART2);
 }
 DECL_INIT(serial_init);
 
 void __visible
 USART2_IRQHandler(void)
 {
+    // Rx Interrupt
     if (LL_USART_IsActiveFlag_RXNE(USART2) || LL_USART_IsActiveFlag_ORE(USART2))
         serial_rx_byte(LL_USART_ReceiveData8(USART2));
-    if (LL_USART_IsActiveFlag_TXE(USART2)) {
+    
+    // Tx Interrupt
+    if (LL_USART_IsEnabledIT_TXE(USART2) && LL_USART_IsActiveFlag_TXE(USART2)) {
         uint8_t data;
         int ret = serial_get_tx_byte(&data);
         if (ret)
