@@ -7,14 +7,24 @@ config STM32F4_SELECT
     default y
     select HAVE_GPIO
     select HAVE_GPIO_ADC
+    select HAVE_GPIO_SPI
 
 config BOARD_DIRECTORY
     string
     default "stm32f4"
 
+choice
+    prompt "Processor model"
+    config MACH_STM32F411
+        bool "STM32F411 (100Mhz)"
+    config MACH_STM32F446
+        bool "STM32F446 (180Mhz)"
+endchoice
+
 config CLOCK_FREQ
     int
-    default 180000000 # 32000000
+    default 8000000 if MACH_STM32F411 # 100000000
+    default 32000000 if MACH_STM32F446 # 180000000
 
 config SERIAL
     bool
